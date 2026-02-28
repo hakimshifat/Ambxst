@@ -169,7 +169,7 @@ PanelWindow {
     }
 
     // Focus grabber
-    HyprlandFocusGrab {
+    FocusGrab {
         id: focusGrab
         windows: [screenshotPopup]
         active: screenshotPopup.visible

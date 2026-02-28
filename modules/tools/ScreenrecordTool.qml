@@ -154,7 +154,7 @@ PanelWindow {
         height: 0
     }
 
-    HyprlandFocusGrab {
+    FocusGrab {
         id: focusGrab
         windows: [screenrecordPopup]
         active: screenrecordPopup.visible
