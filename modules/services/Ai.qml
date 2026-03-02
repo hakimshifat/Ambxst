@@ -14,7 +14,7 @@ Singleton {
     // PROPERTIES
     // ============================================
 
-    property string chatDir: Quickshell.dataPath("chats/")
+    property string chatDir: Quickshell.env("HOME") + "/.local/share/ambxst/chats"
     property string tmpDir: "/tmp/ambxst-ai"
 
     property list<AiModel> models: []
@@ -70,6 +70,13 @@ Singleton {
         target: StateService
         function onStateLoaded() {
             restoreModel();
+        }
+    }
+
+    Connections {
+        target: KeyStore
+        function onKeysChanged() {
+            fetchAvailableModels();
         }
     }
 
@@ -587,7 +594,25 @@ Singleton {
     }
 
     function reloadHistory() {
-        listHistoryProcess.command = ["sh", "-c", "mkdir -p " + chatDir + " && ls -t " + chatDir + "/*.json 2>/dev/null"];
+        let pyScript = `import os, json, glob
+chat_dir = "${chatDir}"
+os.makedirs(chat_dir, exist_ok=True)
+files = sorted(glob.glob(chat_dir + "/*.json"), key=os.path.getmtime, reverse=True)
+for f in files:
+    id = os.path.basename(f)[:-5]
+    title = "New Chat"
+    try:
+        with open(f, 'r') as fp:
+            data = json.load(fp)
+            for msg in data:
+                if msg.get("role") == "user":
+                    title = msg.get("content", "")[:40].replace("\\n", " ").strip()
+                    if len(msg.get("content", "")) > 40: title += "..."
+                    break
+    except: pass
+    print(f"{id}|{title}")
+`;
+        listHistoryProcess.command = ["python3", "-c", pyScript];
         listHistoryProcess.running = true;
     }
 
@@ -618,15 +643,17 @@ Singleton {
                 let lines = listHistoryStdout.text.trim().split("\n");
                 let history = [];
                 for (let i = 0; i < lines.length; i++) {
-                    let path = lines[i];
-                    if (path === "")
+                    let line = lines[i];
+                    if (line === "")
                         continue;
-                    let filename = path.split("/").pop();
-                    let id = filename.replace(".json", "");
-                    history.push({
-                        id: id,
-                        path: path
-                    });
+                    let parts = line.split("|");
+                    if (parts.length >= 2) {
+                        history.push({
+                            id: parts[0],
+                            title: parts.slice(1).join("|"),
+                            path: chatDir + "/" + parts[0] + ".json"
+                        });
+                    }
                 }
                 root.chatHistory = history;
                 root.historyModelChanged();
@@ -661,6 +688,7 @@ Singleton {
     property int pendingFetches: 0
 
     function fetchAvailableModels() {
+        fetchingModels = false; // Force refresh
         if (fetchingModels)
             return;
 

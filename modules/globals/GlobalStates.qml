@@ -525,11 +525,19 @@ Singleton {
     property string assistantPosition: Config.ai.sidebarPosition ?? "right"
     property string assistantScreenName: ""
 
+    property bool assistantHasFocus: false
+
     function toggleAssistant() {
-        assistantVisible = !assistantVisible;
         if (assistantVisible) {
-            if (AxctlService.focusedMonitor) {
+            // Already visible. Tell it to grab focus.
+            assistantHasFocus = true;
+        } else {
+            assistantVisible = true;
+            assistantHasFocus = true; // Tell it to grab focus when opening
+            if (AxctlService.focusedMonitor && AxctlService.focusedMonitor.name) {
                 assistantScreenName = AxctlService.focusedMonitor.name;
+            } else if (Quickshell.screens.length > 0) {
+                assistantScreenName = Quickshell.screens[0].name;
             }
         }
     }

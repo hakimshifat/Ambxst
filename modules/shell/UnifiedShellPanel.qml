@@ -34,8 +34,8 @@ PanelWindow {
         if (notchContent.screenNotchOpen) {
             return WlrKeyboardFocus.Exclusive;
         }
-        if (assistantSidebar.active) {
-            return WlrKeyboardFocus.OnDemand;
+        if (assistantSidebar.active && assistantSidebar.wantsFocus) {
+            return WlrKeyboardFocus.Exclusive;
         }
         return WlrKeyboardFocus.None;
     }
@@ -45,7 +45,7 @@ PanelWindow {
 
     // Whether we need to capture full-screen input for click-outside detection.
     // True when notch modules are open OR any FocusGrab is active (e.g., BarPopups).
-    readonly property bool needsFullScreenInput: notchContent.screenNotchOpen || FocusGrabManager.hasActiveGrab
+    readonly property bool needsFullScreenInput: notchContent.screenNotchOpen || FocusGrabManager.hasActiveGrab || assistantSidebar.wantsFocus
 
     readonly property bool barEnabled: {
         if (!Config.barReady) return false;
@@ -192,6 +192,9 @@ PanelWindow {
 
         onClicked: {
             FocusGrabManager.clearTopGrab();
+            if (assistantSidebar.active && assistantSidebar.wantsFocus) {
+                assistantSidebar.wantsFocus = false;
+            }
         }
     }
 

@@ -18,7 +18,9 @@ Item {
 
     readonly property bool active: GlobalStates.assistantVisible && targetScreen.name === GlobalStates.assistantScreenName
     property alias hitbox: sidebarContainer
+    property alias hasActiveFocus: inputField.activeFocus
 
+    property bool wantsFocus: false
     property bool menuExpanded: false
     property real menuWidth: 250
     property var slashCommands: [
@@ -48,11 +50,37 @@ Item {
         inputField.forceActiveFocus();
     }
 
+    Connections {
+        target: GlobalStates
+        function onAssistantHasFocusChanged() {
+            if (GlobalStates.assistantHasFocus) {
+                if (root.active && root.wantsFocus) {
+                    GlobalStates.hideAssistant();
+                } else {
+                    root.wantsFocus = true;
+                    focusSearchInput();
+                }
+                GlobalStates.assistantHasFocus = false;
+            }
+        }
+    }
+
     onActiveChanged: {
         if (active) {
+            root.wantsFocus = true;
             Qt.callLater(() => {
                 focusSearchInput();
             });
+        }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        propagateComposedEvents: true
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onPressed: mouse => {
+            if (!root.wantsFocus) root.wantsFocus = true;
+            mouse.accepted = false;
         }
     }
 
@@ -270,7 +298,7 @@ Item {
                     StyledRect {
                         id: historyPage
                         anchors.fill: parent
-                        variant: "pane"
+                        variant: "bg"
                         visible: root.menuExpanded
                         opacity: root.menuExpanded ? 1 : 0
                         z: 10
@@ -311,17 +339,31 @@ Item {
                                         anchors.rightMargin: 12
                                         spacing: 8
 
-                                        Text {
-                                            text: {
-                                                let date = new Date(parseInt(modelData.id));
-                                                return date.toLocaleString(Qt.locale(), "MMM dd, hh:mm a");
-                                            }
-                                            color: Ai.currentChatId === modelData.id ? Styling.srItem("primary") : Colors.overSurface
-                                            font.family: Config.theme.font
-                                            font.pixelSize: 14
-                                            elide: Text.ElideRight
+                                        Column {
                                             Layout.fillWidth: true
-                                            verticalAlignment: Text.AlignVCenter
+                                            Layout.alignment: Qt.AlignVCenter
+
+                                            Text {
+                                                text: modelData.title || "New Chat"
+                                                color: Ai.currentChatId === modelData.id ? Styling.srItem("primary") : Colors.overSurface
+                                                font.family: Config.theme.font
+                                                font.pixelSize: 14
+                                                font.weight: Font.Medium
+                                                elide: Text.ElideRight
+                                                width: parent.width
+                                            }
+
+                                            Text {
+                                                text: {
+                                                    let date = new Date(parseInt(modelData.id));
+                                                    return date.toLocaleString(Qt.locale(), "MMM dd, hh:mm a");
+                                                }
+                                                color: Ai.currentChatId === modelData.id ? Styling.srItem("primary") : Colors.outline
+                                                font.family: Config.theme.font
+                                                font.pixelSize: 11
+                                                elide: Text.ElideRight
+                                                width: parent.width
+                                            }
                                         }
 
                                         Button {
@@ -1085,6 +1127,15 @@ Item {
                                                         event.accepted = true;
                                                         return;
                                                     }
+                                                }
+                                                if (event.key === Qt.Key_Escape) {
+                                                    if (root.menuExpanded) {
+                                                        root.menuExpanded = false;
+                                                    } else {
+                                                        root.wantsFocus = false;
+                                                    }
+                                                    event.accepted = true;
+                                                    return;
                                                 }
                                                 if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !(event.modifiers & Qt.ShiftModifier)) {
                                                     if (text.trim().length > 0) {
