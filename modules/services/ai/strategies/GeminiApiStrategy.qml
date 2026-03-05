@@ -42,7 +42,18 @@ ApiStrategy {
                     }]
                 });
             } else {
-                contents.push({ role: "user", parts: [{ text: msg.content }] });
+                let parts = [{ text: msg.content }];
+                if (msg.attachments && msg.attachments.length > 0) {
+                    for (let j = 0; j < msg.attachments.length; j++) {
+                        let att = msg.attachments[j];
+                        if (att.type === "image") {
+                            parts.push({
+                                inline_data: { mime_type: att.mimeType, data: att.base64 }
+                            });
+                        }
+                    }
+                }
+                contents.push({ role: "user", parts: parts });
             }
         }
         return contents;

@@ -633,6 +633,10 @@ Item {
                             sectionId: "bar"
                         }
                         SectionButton {
+                            text: "Sidebar"
+                            sectionId: "sidebar"
+                        }
+                        SectionButton {
                             text: "Frame"
                             sectionId: "frame"
                         }
@@ -663,10 +667,6 @@ Item {
                         SectionButton {
                             text: "System"
                             sectionId: "system"
-                        }
-                        SectionButton {
-                            text: "Sidebar"
-                            sectionId: "sidebar"
                         }
                     }
 

@@ -313,6 +313,24 @@ Item {
                         id: mainChatArea
                         anchors.fill: parent
 
+
+                        property var pendingAttachments: []
+
+                        function addAttachment(mimeType, base64Data, fileName) {
+                            let list = pendingAttachments.slice();
+                            list.push({ type: "image", mimeType: mimeType, base64: base64Data, name: fileName });
+                            pendingAttachments = list;
+                        }
+
+                        function removeAttachment(index) {
+                            let list = pendingAttachments.slice();
+                            list.splice(index, 1);
+                            pendingAttachments = list;
+                        }
+
+                        function clearAttachments() {
+                            pendingAttachments = [];
+                        }
                     StyledRect {
                         id: historyPage
                         anchors.fill: parent
@@ -433,6 +451,55 @@ Item {
                             }
                         }
 
+
+                        Process {
+                            id: zenityProcess
+                            command: ["zenity", "--file-selection", "--file-filter=Images | *.png *.jpg *.jpeg *.gif *.webp *.bmp", "--file-filter=All files | *"]
+                            stdout: StdioCollector {
+                                onStreamFinished: {
+                                    let filePath = text.trim();
+                                    if (filePath.length > 0) {
+                                        zenityReadProcess.filePath = filePath;
+                                        let ext = filePath.split(".").pop().toLowerCase();
+                                        let mimeMap = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
+                                        zenityReadProcess.mimeType = mimeMap[ext] || "application/octet-stream";
+                                        zenityReadProcess.fileName = filePath.split("/").pop();
+                                        zenityReadProcess.running = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        Process {
+                            id: zenityReadProcess
+                            property string filePath: ""
+                            property string mimeType: ""
+                            property string fileName: ""
+                            command: ["bash", "-c", "base64 -w 0 '" + filePath.replace(/'/g, "'\\''") + "'"]
+                            stdout: StdioCollector {
+                                onStreamFinished: {
+                                    let data = text.trim();
+                                    if (data.length > 0)
+                                        mainChatArea.addAttachment(zenityReadProcess.mimeType, data, zenityReadProcess.fileName);
+                                }
+                            }
+                        }
+
+                        Process {
+                            id: clipboardPasteProcess
+                            command: ["bash", "-c", "MIME=$(wl-paste --list-types 2>/dev/null | grep '^image/' | head -1); if [ -n \"$MIME\" ]; then DATA=$(wl-paste --type \"$MIME\" 2>/dev/null | base64 -w 0); echo \"$MIME\"; echo \"$DATA\"; fi"]
+                            stdout: StdioCollector {
+                                onStreamFinished: {
+                                    let lines = text.trim().split("\n");
+                                    if (lines.length >= 2 && lines[0].startsWith("image/")) {
+                                        let mime = lines[0].trim();
+                                        let data = lines[1].trim();
+                                        let ext = mime.split("/")[1] || "png";
+                                        mainChatArea.addAttachment(mime, data, "clipboard." + ext);
+                                    }
+                                }
+                            }
+                        }
                         property bool isWelcome: Ai.currentChat.length === 0
 
                         ColumnLayout {
@@ -985,7 +1052,7 @@ Item {
 
                         Item {
                             id: inputContainer
-                            height: Math.min(150, Math.max(48, inputField.contentHeight + 24))
+                            height: (attachmentPreview.visible ? attachmentPreview.height + 4 : 0) + Math.min(150, Math.max(48, inputField.contentHeight + 24))
 
                             anchors.bottom: parent.bottom
                             property real centerMargin: (parent.height / 2) - (height / 2)
@@ -1001,8 +1068,76 @@ Item {
                                 }
                             }
 
+                            Flow {
+                                id: attachmentPreview
+                                anchors.bottom: inputStyledRect.top
+                                anchors.bottomMargin: 4
+                                anchors.left: parent.left
+                                anchors.leftMargin: 12
+                                anchors.right: parent.right
+                                anchors.rightMargin: 12
+                                spacing: 6
+                                visible: mainChatArea.pendingAttachments.length > 0
+                                height: visible ? 56 : 0
+
+                                Repeater {
+                                    model: mainChatArea.pendingAttachments
+
+                                    Item {
+                                        width: 48
+                                        height: 48
+
+                                        StyledRect {
+                                            anchors.fill: parent
+                                            variant: "surface"
+                                            radius: Styling.radius(6)
+
+                                            Image {
+                                                anchors.fill: parent
+                                                anchors.margins: 2
+                                                source: "data:" + modelData.mimeType + ";base64," + modelData.base64
+                                                fillMode: Image.PreserveAspectCrop
+                                                sourceSize.width: 48
+                                                sourceSize.height: 48
+                                            }
+                                        }
+
+                                        Button {
+                                            anchors.right: parent.right
+                                            anchors.top: parent.top
+                                            anchors.rightMargin: -4
+                                            anchors.topMargin: -4
+                                            width: 16
+                                            height: 16
+                                            flat: true
+                                            z: 1
+
+                                            contentItem: Text {
+                                                text: Icons.cancel
+                                                font.family: Icons.font
+                                                font.pixelSize: 10
+                                                color: Colors.overSurface
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+
+                                            background: Rectangle {
+                                                color: Colors.surfaceBright
+                                                radius: 8
+                                            }
+
+                                            onClicked: mainChatArea.removeAttachment(index)
+                                        }
+                                    }
+                                }
+                            }
+
                             StyledRect {
-                                anchors.fill: parent
+                                id: inputStyledRect
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: Math.min(150, Math.max(48, inputField.contentHeight + 24))
                                 variant: "pane"
                                 radius: Styling.radius(4)
                                 enableShadow: true
@@ -1148,6 +1283,10 @@ Item {
                                                         return;
                                                     }
                                                 }
+                                                if (event.key === Qt.Key_V && (event.modifiers & Qt.ControlModifier)) {
+                                                    clipboardPasteProcess.running = true;
+                                                    return;
+                                                }
                                                 if (event.key === Qt.Key_Escape) {
                                                     if (root.menuExpanded) {
                                                         root.menuExpanded = false;
@@ -1158,14 +1297,14 @@ Item {
                                                     return;
                                                 }
                                                 if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !(event.modifiers & Qt.ShiftModifier)) {
-                                                    if (text.trim().length > 0) {
-                                                        Ai.sendMessage(text.trim());
+                                                    if (text.trim().length > 0 || mainChatArea.pendingAttachments.length > 0) {
+                                                        Ai.sendMessage(text.trim(), mainChatArea.pendingAttachments.length > 0 ? mainChatArea.pendingAttachments : undefined);
                                                         text = "";
+                                                        mainChatArea.clearAttachments();
                                                     }
                                                     event.accepted = true;
                                                 }
                                             }
-
                                             Component.onCompleted: {
                                                 if (root.active)
                                                     forceActiveFocus();
@@ -1173,11 +1312,33 @@ Item {
                                         }
                                     }
 
+
                                     Button {
                                         Layout.preferredWidth: 32
                                         Layout.preferredHeight: 32
                                         flat: true
-                                        visible: inputField.text.length > 0
+
+                                        contentItem: Text {
+                                            text: Icons.clip
+                                            font.family: Icons.font
+                                            font.pixelSize: 20
+                                            color: Colors.outline
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+
+                                        background: Rectangle {
+                                            color: parent.hovered ? Colors.surfaceBright : "transparent"
+                                            radius: 16
+                                        }
+
+                                        onClicked: zenityProcess.running = true
+                                    }
+                                    Button {
+                                        Layout.preferredWidth: 32
+                                        Layout.preferredHeight: 32
+                                        flat: true
+                                        visible: inputField.text.length > 0 || mainChatArea.pendingAttachments.length > 0
 
                                         contentItem: Text {
                                             text: Icons.paperPlane
@@ -1194,9 +1355,10 @@ Item {
                                         }
 
                                         onClicked: {
-                                            if (inputField.text.trim().length > 0) {
-                                                Ai.sendMessage(inputField.text.trim());
+                                            if (inputField.text.trim().length > 0 || mainChatArea.pendingAttachments.length > 0) {
+                                                Ai.sendMessage(inputField.text.trim(), mainChatArea.pendingAttachments.length > 0 ? mainChatArea.pendingAttachments : undefined);
                                                 inputField.text = "";
+                                                mainChatArea.clearAttachments();
                                             }
                                         }
                                     }

@@ -29,14 +29,33 @@ ApiStrategy {
         for (let i = 0; i < messages.length; i++) {
             if (messages[i].role === "system")
                 continue;
-            // Anthropic expects alternating user/assistant; function results become user
             let role = messages[i].role;
             if (role === "function")
                 role = "user";
-            filtered.push({
-                role: role,
-                content: messages[i].content || ""
-            });
+            let msg = messages[i];
+            if (msg.attachments && msg.attachments.length > 0) {
+                let contentParts = [];
+                for (let j = 0; j < msg.attachments.length; j++) {
+                    let att = msg.attachments[j];
+                    if (att.type === "image") {
+                        contentParts.push({
+                            type: "image",
+                            source: {
+                                type: "base64",
+                                media_type: att.mimeType,
+                                data: att.base64
+                            }
+                        });
+                    }
+                }
+                contentParts.push({ type: "text", text: msg.content || "" });
+                filtered.push({ role: role, content: contentParts });
+            } else {
+                filtered.push({
+                    role: role,
+                    content: msg.content || ""
+                });
+            }
         }
         return filtered;
     }

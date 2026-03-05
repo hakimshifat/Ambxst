@@ -308,24 +308,23 @@ Singleton {
         makeRequest();
     }
 
-    function sendMessage(text) {
-        if (text.trim() === "")
+    function sendMessage(text, attachments) {
+        if (text.trim() === "" && (!attachments || attachments.length === 0))
             return;
-
         if (processCommand(text))
             return;
-
         isLoading = true;
         lastError = "";
-
         let userMsg = {
             role: "user",
             content: text
         };
+        if (attachments && attachments.length > 0)
+            userMsg.attachments = attachments;
         let newChat = Array.from(currentChat);
         newChat.push(userMsg);
         currentChat = newChat;
-
+        saveCurrentChat();
         makeRequest();
     }
 
@@ -370,6 +369,8 @@ Singleton {
                 role: msg.role,
                 content: msg.content
             };
+            if (msg.attachments)
+                apiMsg.attachments = msg.attachments;
             if (msg.functionCall)
                 apiMsg.functionCall = msg.functionCall;
             if (msg.geminiParts)

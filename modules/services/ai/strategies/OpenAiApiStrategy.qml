@@ -18,10 +18,32 @@ ApiStrategy {
         ];
     }
 
+    function _formatMessages(messages) {
+        let formatted = [];
+        for (let i = 0; i < messages.length; i++) {
+            let msg = messages[i];
+            if (msg.attachments && msg.attachments.length > 0) {
+                let contentParts = [{type: "text", text: msg.content}];
+                for (let j = 0; j < msg.attachments.length; j++) {
+                    let att = msg.attachments[j];
+                    if (att.type === "image") {
+                        contentParts.push({
+                            type: "image_url",
+                            image_url: { url: "data:" + att.mimeType + ";base64," + att.base64 }
+                        });
+                    }
+                }
+                formatted.push({ role: msg.role, content: contentParts });
+            } else {
+                formatted.push({ role: msg.role, content: msg.content });
+            }
+        }
+        return formatted;
+    }
     function getBody(messages, model, tools) {
         let body = {
             model: model.model,
-            messages: messages,
+            messages: _formatMessages(messages),
             temperature: 0.7
         };
         if (tools && tools.length > 0) {
