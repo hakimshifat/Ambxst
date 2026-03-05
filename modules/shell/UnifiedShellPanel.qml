@@ -265,6 +265,30 @@ PanelWindow {
                 }
                 return margin;
             }
+
+            anchors.leftMargin: {
+                let sidebarPos = GlobalStates.assistantPosition;
+                let frameOn = (Config.bar?.frameEnabled ?? false);
+                let frameWrapped = frameOn && GlobalStates.assistantPinned;
+                let margin = 0;
+                if (sidebarPos === "left" && frameOn && !frameWrapped)
+                    margin += (Config.bar?.frameThickness ?? 6);
+                if (unifiedPanel.barEnabled && unifiedPanel.barPosition === "left" && unifiedPanel.barPinned)
+                    margin += unifiedPanel.barTargetWidth + unifiedPanel.barOuterMargin + (unifiedPanel.containBar ? Config.bar.frameThickness : 0);
+                return margin;
+            }
+
+            anchors.rightMargin: {
+                let sidebarPos = GlobalStates.assistantPosition;
+                let frameOn = (Config.bar?.frameEnabled ?? false);
+                let frameWrapped = frameOn && GlobalStates.assistantPinned;
+                let margin = 0;
+                if (sidebarPos === "right" && frameOn && !frameWrapped)
+                    margin += (Config.bar?.frameThickness ?? 6);
+                if (unifiedPanel.barEnabled && unifiedPanel.barPosition === "right" && unifiedPanel.barPinned)
+                    margin += unifiedPanel.barTargetWidth + unifiedPanel.barOuterMargin + (unifiedPanel.containBar ? Config.bar.frameThickness : 0);
+                return margin;
+            }
         }
     }
 }

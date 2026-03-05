@@ -21,7 +21,8 @@ Item {
     property alias hasActiveFocus: inputField.activeFocus
 
     readonly property bool frameEnabled: (Config.bar?.frameEnabled ?? false)
-    readonly property int sidebarMargin: (frameEnabled && GlobalStates.assistantPinned) ? 0 : 4
+    readonly property bool frameWrapped: frameEnabled && GlobalStates.assistantPinned
+    readonly property int sidebarMargin: frameWrapped ? 0 : 4
     property bool wantsFocus: false
     property bool menuExpanded: false
     property real menuWidth: 250
