@@ -119,6 +119,8 @@ curl -L get.axeni.de/ambxst | sh
 - `screenshotToolMode` in `GlobalStates.qml` is **DEPRECATED**.
 - Gemini AI provider doesn't support the `system` role; handled in `services/ai/strategies/`.
 - `axctl` is a core part of this project. It abstracts compositor interactions. It is one of Axenide's projects and the source code is available at `/home/adriano/Repos/Axenide/axctl/`.
+- We register a changelog in a website. The local repo for this website is at `/home/adriano/Repos/Axenide/web/`. The changelog entries are stored in `content/ambxst/changelog/` as Zola markdown files. Write following the structure by referencing other entries, and add links to PRs and issues when relevant. Only write a changelog when the user asks for it.
+
 - Some projects to keep in mind for reference:
   - DankMaterialShell (DMS): https://github.com/AvengeMedia/DankMaterialShell
   - Noctalia: https://github.com/noctalia-dev/noctalia-shell
