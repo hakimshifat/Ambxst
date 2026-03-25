@@ -12,6 +12,7 @@ import "defaults/workspaces.js" as WorkspacesDefaults
 import "defaults/overview.js" as OverviewDefaults
 import "defaults/notch.js" as NotchDefaults
 import "defaults/compositor.js" as CompositorDefaults
+import "KeybindActions.js" as KeybindActions
 import "defaults/performance.js" as PerformanceDefaults
 import "defaults/weather.js" as WeatherDefaults
 import "defaults/desktop.js" as DesktopDefaults
@@ -1104,34 +1105,42 @@ Singleton {
                 if (nested.widgets) {
                     current.ambxst.launcher = nested.widgets;
                     current.ambxst.launcher.argument = "ambxst run launcher";
+                    current.ambxst.launcher.action = createAction(current.ambxst.launcher);
                 }
                 if (nested.dashboard) {
                     current.ambxst.dashboard = nested.dashboard;
                     current.ambxst.dashboard.argument = "ambxst run dashboard";
+                    current.ambxst.dashboard.action = createAction(current.ambxst.dashboard);
                 }
                 if (nested.assistant) {
                     current.ambxst.assistant = nested.assistant;
                     current.ambxst.assistant.argument = "ambxst run assistant";
+                    current.ambxst.assistant.action = createAction(current.ambxst.assistant);
                 }
                 if (nested.clipboard) {
                     current.ambxst.clipboard = nested.clipboard;
                     current.ambxst.clipboard.argument = "ambxst run clipboard";
+                    current.ambxst.clipboard.action = createAction(current.ambxst.clipboard);
                 }
                 if (nested.emoji) {
                     current.ambxst.emoji = nested.emoji;
                     current.ambxst.emoji.argument = "ambxst run emoji";
+                    current.ambxst.emoji.action = createAction(current.ambxst.emoji);
                 }
                 if (nested.notes) {
                     current.ambxst.notes = nested.notes;
                     current.ambxst.notes.argument = "ambxst run notes";
+                    current.ambxst.notes.action = createAction(current.ambxst.notes);
                 }
                 if (nested.tmux) {
                     current.ambxst.tmux = nested.tmux;
                     current.ambxst.tmux.argument = "ambxst run tmux";
+                    current.ambxst.tmux.action = createAction(current.ambxst.tmux);
                 }
                 if (nested.wallpapers) {
                     current.ambxst.wallpapers = nested.wallpapers;
                     current.ambxst.wallpapers.argument = "ambxst run wallpapers";
+                    current.ambxst.wallpapers.action = createAction(current.ambxst.wallpapers);
                 }
 
                 // Remove the old nested object
@@ -1149,13 +1158,18 @@ Singleton {
             if (!adapter || !adapter.ambxst) return;
 
             // Helper function to create clean bind object
+            function createAction(bindObj) {
+                if (bindObj && bindObj.action) {
+                    return KeybindActions.ensureAction(bindObj.action);
+                }
+                return KeybindActions.actionFromLegacy(bindObj.dispatcher || "", bindObj.argument || "", bindObj.flags || "");
+            }
+
             function createCleanBind(bindObj) {
                 return {
                     "modifiers": bindObj.modifiers || [],
                     "key": bindObj.key || "",
-                    "dispatcher": bindObj.dispatcher || "",
-                    "argument": bindObj.argument || "",
-                    "flags": bindObj.flags || ""
+                    "action": createAction(bindObj)
                 };
             }
 
@@ -1165,6 +1179,12 @@ Singleton {
                 if (!current.ambxst[key] && adapter.ambxst[key]) {
                     console.log("Adding missing ambxst bind:", key);
                     current.ambxst[key] = createCleanBind(adapter.ambxst[key]);
+                    needsUpdate = true;
+                } else if (current.ambxst[key] && !current.ambxst[key].action) {
+                    current.ambxst[key].action = createAction(current.ambxst[key]);
+                    delete current.ambxst[key].dispatcher;
+                    delete current.ambxst[key].argument;
+                    delete current.ambxst[key].flags;
                     needsUpdate = true;
                 }
             }
@@ -1176,36 +1196,20 @@ Singleton {
                     console.log("Adding missing system bind:", key);
                     current.ambxst.system[key] = createCleanBind(adapter.ambxst.system[key]);
                     needsUpdate = true;
+                } else if (current.ambxst.system[key] && !current.ambxst.system[key].action) {
+                    current.ambxst.system[key].action = createAction(current.ambxst.system[key]);
+                    delete current.ambxst.system[key].dispatcher;
+                    delete current.ambxst.system[key].argument;
+                    delete current.ambxst.system[key].flags;
+                    needsUpdate = true;
                 }
             }
 
-            // Migrate compositor wrapper -> direct layouts (Phase C: compositor-agnostic)
             if (current.custom && current.custom.length > 0) {
-                for (let i = 0; i < current.custom.length; i++) {
-                    const bind = current.custom[i];
-                    if (bind.actions) {
-                        for (let a = 0; a < bind.actions.length; a++) {
-                            const action = bind.actions[a];
-                            // Migrate compositor.layouts -> action.layouts
-                            if (action.compositor) {
-                                if (action.compositor.layouts && action.compositor.layouts.length > 0 && !action.layouts) {
-                                    action.layouts = action.compositor.layouts;
-                                }
-                                delete action.compositor;
-                                needsUpdate = true;
-                            }
-                            // Migrate hyprctl dispatch dpms -> axctl monitor set-dpms
-                            if (action.dispatcher === "exec" && action.argument) {
-                                if (action.argument === "hyprctl dispatch dpms off") {
-                                    action.argument = "axctl monitor set-dpms 0";
-                                    needsUpdate = true;
-                                } else if (action.argument === "hyprctl dispatch dpms on") {
-                                    action.argument = "axctl monitor set-dpms 1";
-                                    needsUpdate = true;
-                                }
-                            }
-                        }
-                    }
+                const normalized = KeybindActions.normalizeCustomBinds(current.custom);
+                if (normalized.changed) {
+                    current.custom = normalized.binds;
+                    needsUpdate = true;
                 }
             }
 
@@ -1229,6 +1233,7 @@ Singleton {
                 if (!raw || raw.trim().length === 0) {
                     console.log("binds.json not found, creating with default values...");
                     keybindsLoader.writeAdapter();
+                    repairKeybindsTimer.start();
                 } else {
                     // File exists, check if it needs repair
                     repairKeybindsTimer.start();
@@ -1257,79 +1262,10 @@ Singleton {
             if (!adapter || !adapter.custom)
                 return;
 
-            let needsUpdate = false;
-            let normalizedBinds = [];
-
-            for (let i = 0; i < adapter.custom.length; i++) {
-                let bind = adapter.custom[i];
-
-                // Check if it's old format (has modifiers/key instead of keys[])
-                if (bind.keys === undefined || bind.actions === undefined) {
-                    needsUpdate = true;
-                    normalizedBinds.push({
-                        "name": bind.name || "",
-                        "keys": [
-                            {
-                                "modifiers": bind.modifiers || [],
-                                "key": bind.key || ""
-                            }
-                        ],
-                        "actions": [
-                            {
-                                "dispatcher": bind.dispatcher || "",
-                                "argument": bind.argument || "",
-                                "flags": bind.flags || "",
-                                "layouts": []
-                            }
-                        ],
-                        "enabled": bind.enabled !== false
-                    });
-                } else {
-                    // Check if actions need layouts field (previously compositor wrapper)
-                    let actionsNeedUpdate = false;
-                    let normalizedActions = [];
-
-                    for (let a = 0; a < bind.actions.length; a++) {
-                        let action = bind.actions[a];
-                        if (action.compositor) {
-                            // Migrate old compositor wrapper to direct layouts
-                            actionsNeedUpdate = true;
-                            normalizedActions.push({
-                                "dispatcher": action.dispatcher || "",
-                                "argument": action.argument || "",
-                                "flags": action.flags || "",
-                                "layouts": (action.compositor.layouts && action.compositor.layouts.length > 0) ? action.compositor.layouts : []
-                            });
-                        } else if (action.layouts === undefined) {
-                            actionsNeedUpdate = true;
-                            normalizedActions.push({
-                                "dispatcher": action.dispatcher || "",
-                                "argument": action.argument || "",
-                                "flags": action.flags || "",
-                                "layouts": []
-                            });
-                        } else {
-                            normalizedActions.push(action);
-                        }
-                    }
-
-                    if (actionsNeedUpdate) {
-                        needsUpdate = true;
-                        normalizedBinds.push({
-                            "name": bind.name || "",
-                            "keys": bind.keys,
-                            "actions": normalizedActions,
-                            "enabled": bind.enabled !== false
-                        });
-                    } else {
-                        normalizedBinds.push(bind);
-                    }
-                }
-            }
-
-            if (needsUpdate) {
-                console.log("Normalizing custom binds: migrating to new keys/actions/layouts format");
-                adapter.custom = normalizedBinds;
+            const normalized = KeybindActions.normalizeCustomBinds(adapter.custom);
+            if (normalized.changed) {
+                console.log("Normalizing custom binds: migrating to action format");
+                adapter.custom = normalized.binds;
             }
         }
 
@@ -1338,149 +1274,119 @@ Singleton {
                 property JsonObject launcher: JsonObject {
                     property list<string> modifiers: ["SUPER"]
                     property string key: "Super_L"
-                    property string dispatcher: "exec"
-                    property string argument: "ambxst run launcher"
-                    property string flags: "r"
+                property var action: ({ "id": "ambxst.launcher", "args": {} })
+            }
+            property JsonObject dashboard: JsonObject {
+                property list<string> modifiers: ["SUPER"]
+                property string key: "D"
+                property var action: ({ "id": "ambxst.dashboard", "args": {} })
+            }
+            property JsonObject assistant: JsonObject {
+                property list<string> modifiers: ["SUPER"]
+                property string key: "A"
+                property var action: ({ "id": "ambxst.assistant", "args": {} })
+            }
+            property JsonObject clipboard: JsonObject {
+                property list<string> modifiers: ["SUPER"]
+                property string key: "V"
+                property var action: ({ "id": "ambxst.clipboard", "args": {} })
+            }
+            property JsonObject emoji: JsonObject {
+                property list<string> modifiers: ["SUPER"]
+                property string key: "PERIOD"
+                property var action: ({ "id": "ambxst.emoji", "args": {} })
+            }
+            property JsonObject notes: JsonObject {
+                property list<string> modifiers: ["SUPER"]
+                property string key: "N"
+                property var action: ({ "id": "ambxst.notes", "args": {} })
+            }
+            property JsonObject tmux: JsonObject {
+                property list<string> modifiers: ["SUPER"]
+                property string key: "T"
+                property var action: ({ "id": "ambxst.tmux", "args": {} })
+            }
+            property JsonObject wallpapers: JsonObject {
+                property list<string> modifiers: ["SUPER"]
+                property string key: "COMMA"
+                property var action: ({ "id": "ambxst.wallpapers", "args": {} })
+            }
+            property JsonObject system: JsonObject {
+                property JsonObject config: JsonObject {
+                    property list<string> modifiers: ["SUPER", "SHIFT"]
+                    property string key: "C"
+                    property var action: ({ "id": "ambxst.config", "args": {} })
                 }
-                property JsonObject dashboard: JsonObject {
+                property JsonObject lockscreen: JsonObject {
                     property list<string> modifiers: ["SUPER"]
-                    property string key: "D"
-                    property string dispatcher: "exec"
-                    property string argument: "ambxst run dashboard"
-                    property string flags: ""
+                    property string key: "L"
+                    property var action: ({ "id": "system.lock", "args": {} })
                 }
-                property JsonObject assistant: JsonObject {
+                property JsonObject overview: JsonObject {
                     property list<string> modifiers: ["SUPER"]
+                    property string key: "TAB"
+                    property var action: ({ "id": "ambxst.overview", "args": {} })
+                }
+                property JsonObject powermenu: JsonObject {
+                    property list<string> modifiers: ["SUPER"]
+                    property string key: "ESCAPE"
+                    property var action: ({ "id": "ambxst.powermenu", "args": {} })
+                }
+                property JsonObject tools: JsonObject {
+                    property list<string> modifiers: ["SUPER"]
+                    property string key: "S"
+                    property var action: ({ "id": "ambxst.tools", "args": {} })
+                }
+                property JsonObject screenshot: JsonObject {
+                    property list<string> modifiers: ["SUPER", "SHIFT"]
+                    property string key: "S"
+                    property var action: ({ "id": "ambxst.screenshot", "args": {} })
+                }
+                property JsonObject screenrecord: JsonObject {
+                    property list<string> modifiers: ["SUPER", "SHIFT"]
+                    property string key: "R"
+                    property var action: ({ "id": "ambxst.screenrecord", "args": {} })
+                }
+                property JsonObject lens: JsonObject {
+                    property list<string> modifiers: ["SUPER", "SHIFT"]
                     property string key: "A"
-                    property string dispatcher: "exec"
-                    property string argument: "ambxst run assistant"
+                    property var action: ({ "id": "ambxst.lens", "args": {} })
                 }
-                property JsonObject clipboard: JsonObject {
-                    property list<string> modifiers: ["SUPER"]
-                    property string key: "V"
-                    property string dispatcher: "exec"
-                    property string argument: "ambxst run clipboard"
+                property JsonObject reload: JsonObject {
+                    property list<string> modifiers: ["SUPER", "ALT"]
+                    property string key: "B"
+                    property var action: ({ "id": "ambxst.reload", "args": {} })
                 }
-                property JsonObject emoji: JsonObject {
-                    property list<string> modifiers: ["SUPER"]
-                    property string key: "PERIOD"
-                    property string dispatcher: "exec"
-                    property string argument: "ambxst run emoji"
+                property JsonObject quit: JsonObject {
+                    property list<string> modifiers: ["SUPER", "CTRL", "ALT"]
+                    property string key: "B"
+                    property var action: ({ "id": "ambxst.quit", "args": {} })
                 }
-                property JsonObject notes: JsonObject {
-                    property list<string> modifiers: ["SUPER"]
-                    property string key: "N"
-                    property string dispatcher: "exec"
-                    property string argument: "ambxst run notes"
-                }
-                property JsonObject tmux: JsonObject {
-                    property list<string> modifiers: ["SUPER"]
-                    property string key: "T"
-                    property string dispatcher: "exec"
-                    property string argument: "ambxst run tmux"
-                }
-                property JsonObject wallpapers: JsonObject {
-                    property list<string> modifiers: ["SUPER"]
-                    property string key: "COMMA"
-                    property string dispatcher: "exec"
-                    property string argument: "ambxst run wallpapers"
-                }
-                property JsonObject system: JsonObject {
-                    property JsonObject config: JsonObject {
-                        property list<string> modifiers: ["SUPER", "SHIFT"]
-                        property string key: "C"
-                        property string dispatcher: "exec"
-                        property string argument: "ambxst run config"
-                        property string flags: ""
-                    }
-                    property JsonObject lockscreen: JsonObject {
-                        property list<string> modifiers: ["SUPER"]
-                        property string key: "L"
-                        property string dispatcher: "exec"
-                        property string argument: "loginctl lock-session"
-                        property string flags: ""
-                    }
-                    property JsonObject overview: JsonObject {
-                        property list<string> modifiers: ["SUPER"]
-                        property string key: "TAB"
-                        property string dispatcher: "exec"
-                        property string argument: "ambxst run overview"
-                        property string flags: ""
-                    }
-                    property JsonObject powermenu: JsonObject {
-                        property list<string> modifiers: ["SUPER"]
-                        property string key: "ESCAPE"
-                        property string dispatcher: "exec"
-                        property string argument: "ambxst run powermenu"
-                        property string flags: ""
-                    }
-                    property JsonObject tools: JsonObject {
-                        property list<string> modifiers: ["SUPER"]
-                        property string key: "S"
-                        property string dispatcher: "exec"
-                        property string argument: "ambxst run tools"
-                        property string flags: ""
-                    }
-                    property JsonObject screenshot: JsonObject {
-                        property list<string> modifiers: ["SUPER", "SHIFT"]
-                        property string key: "S"
-                        property string dispatcher: "exec"
-                        property string argument: "ambxst run screenshot"
-                        property string flags: ""
-                    }
-                    property JsonObject screenrecord: JsonObject {
-                        property list<string> modifiers: ["SUPER", "SHIFT"]
-                        property string key: "R"
-                        property string dispatcher: "exec"
-                        property string argument: "ambxst run screenrecord"
-                        property string flags: ""
-                    }
-                    property JsonObject lens: JsonObject {
-                        property list<string> modifiers: ["SUPER", "SHIFT"]
-                        property string key: "A"
-                        property string dispatcher: "exec"
-                        property string argument: "ambxst run lens"
-                        property string flags: ""
-                    }
-                    property JsonObject reload: JsonObject {
-                        property list<string> modifiers: ["SUPER", "ALT"]
-                        property string key: "B"
-                        property string dispatcher: "exec"
-                        property string argument: "ambxst reload"
-                        property string flags: ""
-                    }
-                    property JsonObject quit: JsonObject {
-                        property list<string> modifiers: ["SUPER", "CTRL", "ALT"]
-                        property string key: "B"
-                        property string dispatcher: "exec"
-                        property string argument: "ambxst quit"
-                        property string flags: ""
-                    }
-                }
+            }
             }
             // Default getters
             readonly property var defaultAmbxstBinds: {
                 "ambxst": {
-                    "launcher": { "modifiers": ["SUPER"], "key": "Super_L", "dispatcher": "exec", "argument": "ambxst run launcher", "flags": "r" },
-                    "dashboard": { "modifiers": ["SUPER"], "key": "D", "dispatcher": "exec", "argument": "ambxst run dashboard", "flags": "" },
-                    "assistant": { "modifiers": ["SUPER"], "key": "A", "dispatcher": "exec", "argument": "ambxst run assistant", "flags": "" },
-                    "clipboard": { "modifiers": ["SUPER"], "key": "V", "dispatcher": "exec", "argument": "ambxst run clipboard", "flags": "" },
-                    "emoji": { "modifiers": ["SUPER"], "key": "PERIOD", "dispatcher": "exec", "argument": "ambxst run emoji", "flags": "" },
-                    "notes": { "modifiers": ["SUPER"], "key": "N", "dispatcher": "exec", "argument": "ambxst run notes", "flags": "" },
-                    "tmux": { "modifiers": ["SUPER"], "key": "T", "dispatcher": "exec", "argument": "ambxst run tmux", "flags": "" },
-                    "wallpapers": { "modifiers": ["SUPER"], "key": "COMMA", "dispatcher": "exec", "argument": "ambxst run wallpapers", "flags": "" }
+                    "launcher": { "modifiers": ["SUPER"], "key": "Super_L", "action": { "id": "ambxst.launcher", "args": {} } },
+                    "dashboard": { "modifiers": ["SUPER"], "key": "D", "action": { "id": "ambxst.dashboard", "args": {} } },
+                    "assistant": { "modifiers": ["SUPER"], "key": "A", "action": { "id": "ambxst.assistant", "args": {} } },
+                    "clipboard": { "modifiers": ["SUPER"], "key": "V", "action": { "id": "ambxst.clipboard", "args": {} } },
+                    "emoji": { "modifiers": ["SUPER"], "key": "PERIOD", "action": { "id": "ambxst.emoji", "args": {} } },
+                    "notes": { "modifiers": ["SUPER"], "key": "N", "action": { "id": "ambxst.notes", "args": {} } },
+                    "tmux": { "modifiers": ["SUPER"], "key": "T", "action": { "id": "ambxst.tmux", "args": {} } },
+                    "wallpapers": { "modifiers": ["SUPER"], "key": "COMMA", "action": { "id": "ambxst.wallpapers", "args": {} } }
                 },
                 "system": {
-                    "config": { "modifiers": ["SUPER", "SHIFT"], "key": "C", "dispatcher": "exec", "argument": "ambxst run config", "flags": "" },
-                    "lockscreen": { "modifiers": ["SUPER"], "key": "L", "dispatcher": "exec", "argument": "loginctl lock-session", "flags": "" },
-                    "overview": { "modifiers": ["SUPER"], "key": "TAB", "dispatcher": "exec", "argument": "ambxst run overview", "flags": "" },
-                    "powermenu": { "modifiers": ["SUPER"], "key": "ESCAPE", "dispatcher": "exec", "argument": "ambxst run powermenu", "flags": "" },
-                    "tools": { "modifiers": ["SUPER"], "key": "S", "dispatcher": "exec", "argument": "ambxst run tools", "flags": "" },
-                    "screenshot": { "modifiers": ["SUPER", "SHIFT"], "key": "S", "dispatcher": "exec", "argument": "ambxst run screenshot", "flags": "" },
-                    "screenrecord": { "modifiers": ["SUPER", "SHIFT"], "key": "R", "dispatcher": "exec", "argument": "ambxst run screenrecord", "flags": "" },
-                    "lens": { "modifiers": ["SUPER", "SHIFT"], "key": "A", "dispatcher": "exec", "argument": "ambxst run lens", "flags": "" },
-                    "reload": { "modifiers": ["SUPER", "ALT"], "key": "B", "dispatcher": "exec", "argument": "ambxst reload", "flags": "" },
-                    "quit": { "modifiers": ["SUPER", "CTRL", "ALT"], "key": "B", "dispatcher": "exec", "argument": "ambxst quit", "flags": "" }
+                    "config": { "modifiers": ["SUPER", "SHIFT"], "key": "C", "action": { "id": "ambxst.config", "args": {} } },
+                    "lockscreen": { "modifiers": ["SUPER"], "key": "L", "action": { "id": "system.lock", "args": {} } },
+                    "overview": { "modifiers": ["SUPER"], "key": "TAB", "action": { "id": "ambxst.overview", "args": {} } },
+                    "powermenu": { "modifiers": ["SUPER"], "key": "ESCAPE", "action": { "id": "ambxst.powermenu", "args": {} } },
+                    "tools": { "modifiers": ["SUPER"], "key": "S", "action": { "id": "ambxst.tools", "args": {} } },
+                    "screenshot": { "modifiers": ["SUPER", "SHIFT"], "key": "S", "action": { "id": "ambxst.screenshot", "args": {} } },
+                    "screenrecord": { "modifiers": ["SUPER", "SHIFT"], "key": "R", "action": { "id": "ambxst.screenrecord", "args": {} } },
+                    "lens": { "modifiers": ["SUPER", "SHIFT"], "key": "A", "action": { "id": "ambxst.lens", "args": {} } },
+                    "reload": { "modifiers": ["SUPER", "ALT"], "key": "B", "action": { "id": "ambxst.reload", "args": {} } },
+                    "quit": { "modifiers": ["SUPER", "CTRL", "ALT"], "key": "B", "action": { "id": "ambxst.quit", "args": {} } }
                 }
             }
 
@@ -1490,9 +1396,7 @@ Singleton {
                     return {
                         "modifiers": bind.modifiers || [],
                         "key": bind.key || "",
-                        "dispatcher": bind.dispatcher || "",
-                        "argument": bind.argument || "",
-                        "flags": bind.flags || ""
+                        "action": KeybindActions.ensureAction(bind.action)
                     };
                 }
                 return null;

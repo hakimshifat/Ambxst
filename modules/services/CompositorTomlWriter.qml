@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import qs.config
 import qs.modules.globals
+import "../../config/KeybindActions.js" as KeybindActions
 
 /**
  * CompositorTomlWriter - Generates TOML configuration for axctl
@@ -159,6 +160,16 @@ Singleton {
             toml += "enabled = true\n";
         }
 
+        function resolveBindAction(action, fallback) {
+            const resolved = KeybindActions.resolveAction(action || fallback);
+            if (!resolved) return null;
+            return {
+                dispatcher: resolved.dispatcher || "",
+                argument: resolved.argument || "",
+                flags: resolved.flags || ""
+            };
+        }
+
         function actionCompatibleWithLayout(action) {
             if (!action)
                 return false;
@@ -231,12 +242,15 @@ Singleton {
             function pushCoreBind(keybind) {
                 if (!keybind)
                     return;
+                const resolved = resolveBindAction(keybind.action, keybind);
+                if (!resolved)
+                    return;
                 pushKeybindEntry(
                     keybind.modifiers || [],
                     keybind.key || "",
-                    keybind.dispatcher || "",
-                    keybind.argument || "",
-                    keybind.flags || ""
+                    resolved.dispatcher,
+                    resolved.argument,
+                    resolved.flags
                 );
             }
 
@@ -279,23 +293,29 @@ Singleton {
                                 const action = bind.actions[a];
                                 if (!actionCompatibleWithLayout(action))
                                     continue;
+                                const resolved = resolveBindAction(action, action);
+                                if (!resolved)
+                                    continue;
                                 pushKeybindEntry(
                                     keyObj.modifiers || [],
                                     keyObj.key || "",
-                                    action.dispatcher || "",
-                                    action.argument || "",
-                                    action.flags || ""
+                                    resolved.dispatcher,
+                                    resolved.argument,
+                                    resolved.flags
                                 );
                             }
                         }
                     } else if (bind) {
                         // Legacy single-key format
+                        const resolved = resolveBindAction(bind.action, bind);
+                        if (!resolved)
+                            continue;
                         pushKeybindEntry(
                             bind.modifiers || [],
                             bind.key || "",
-                            bind.dispatcher || "",
-                            bind.argument || "",
-                            bind.flags || ""
+                            resolved.dispatcher,
+                            resolved.argument,
+                            resolved.flags
                         );
                     }
                 }
