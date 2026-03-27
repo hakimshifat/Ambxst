@@ -2,7 +2,7 @@
   description = "Ambxst - An Axtremely customizable shell by Axenide";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     quickshell = {
       url = "git+https://git.outfoxxed.me/outfoxxed/quickshell";
