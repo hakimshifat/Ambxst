@@ -119,6 +119,41 @@ Item {
         _getProcess.running = true;
     }
 
+    function _checkMediaInhibitor() {
+        if (!respectInhibitors) return;
+        
+        var cmd = "axctl system media-inhibit-check";
+        _mediaCheckProcess.command = ["sh", "-c", cmd];
+        _mediaCheckProcess.running = true;
+    }
+
+    property var _mediaCheckProcess: Process {
+        id: _mediaCheckProcess
+        command: ["sh", "-c", ""]
+        running: false
+        stdout: StdioCollector {
+            id: _mediaCheckStdout
+        }
+        onExited: (code) => {
+            if (code === 0 && _mediaCheckStdout.text) {
+                try {
+                    var json = JSON.parse(_mediaCheckStdout.text.trim());
+                    if (json.count > 0) {
+                        root.isIdle = false;
+                    }
+                } catch (e) {}
+            }
+        }
+    }
+
+    Timer {
+        id: mediaCheckTimer
+        interval: 5000
+        running: true
+        repeat: true
+        onTriggered: root._checkMediaInhibitor()
+    }
+
     function _updateMonitor() {
         if (!enabled || timeout <= 0 || _monitorId === 0) {
             _stopPolling();
